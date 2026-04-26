@@ -1,129 +1,47 @@
-import {
-  Source,
-  Manga,
-  Chapter,
-  ChapterDetails,
-  HomeSection,
-  SearchRequest,
-  PagedResults,
-  TagSection,
-  Tag,
-  SourceTag,
-} from "paperback-extensions-common";
+import { Source, Manga, Chapter, ChapterDetails, HomeSection, SearchRequest, PagedResults, SourceTag } from "paperback-extensions-common";
 
 export class ReadSVSComics extends Source {
   readonly name = "Read SVSComics";
   readonly baseUrl = "https://read.svscomics.com";
   readonly lang = "en";
   readonly isNsfw = true;
-
   readonly tags: SourceTag[] = [SourceTag.ADULT];
 
-  // Homepage sections
-  async getHomePageSections(): Promise<HomeSection[]> {
-    return [
-      {
-        id: "latest",
-        title: "Latest Updates",
-        view_more: true,
-      },
-      {
-        id: "3d",
-        title: "3D Comics",
-        view_more: true,
-      },
-    ];
-  }
-
-  // Latest / Updated list
-  async getMangaList(page: number): Promise<PagedResults> {
-    const request = {
-      url: `${this.baseUrl}/page/${page}/`,
-      method: "GET",
-    };
-    const data = await this.requestManager.schedule(request, 1);
+  async getMangaList(page: number) {
+    const req = { url: `${this.baseUrl}/page/${page}/`, method: "GET" };
+    const data = await this.requestManager.schedule(req, 1);
     const $ = this.cheerio.load(data.data);
-
-    const mangas: Manga[] = [];
-    // Adjust these selectors after you inspect the site in Safari
-    $(".comic-item, .list-item, article").each((_, el) => {
-      const title = $(el).find("h3, .title").text().trim() || "Untitled";
+    const mangas = [];
+    $(".comic, article, .post, .item").each((_, el) => {  // ← if this doesn’t work later, we’ll fix it together
+      const title = $(el).find("h3, .title").text().trim() || "Cute Comic";
       const url = $(el).find("a").attr("href") || "";
-      const cover = $(el).find("img").attr("src") || $(el).find("img").attr("data-src") || "";
-      if (url) {
-        mangas.push(createManga({
-          id: url.replace(this.baseUrl, "").replace("/", ""),
-          title,
-          image: cover.startsWith("http") ? cover : this.baseUrl + cover,
-        }));
-      }
+      const cover = $(el).find("img").attr("src") || "";
+      if (url) mangas.push(createManga({ id: url.split("/").pop(), title, image: cover }));
     });
-
-    const hasNext = $(".pagination .next").length > 0; // tweak if needed
-    return createPagedResults({
-      results: mangas,
-      metadata: hasNext ? { page: page + 1 } : undefined,
-    });
+    return createPagedResults({ results: mangas });
   }
 
-  // Search
-  async searchManga(searchRequest: SearchRequest): Promise<PagedResults> {
-    // Site uses /search/ or query param - test and adjust
-    const query = encodeURIComponent(searchRequest.title || "");
-    const request = { url: `${this.baseUrl}/?s=${query}`, method: "GET" };
-    // ... same parsing logic as getMangaList
-    // (copy the cheerio block above and return results)
-  }
-
-  // Manga details + chapters (most are single-chapter comics)
-  async getMangaDetails(mangaId: string): Promise<Manga> {
+  async getMangaDetails(mangaId) {
     const url = `${this.baseUrl}/${mangaId}`;
     const data = await this.requestManager.schedule({ url, method: "GET" }, 1);
     const $ = this.cheerio.load(data.data);
-
-    const title = $("h1").text().trim();
-    const artist = $(".artist, .author").text().trim();
-    const cover = $("img.cover, .featured-image img").attr("src") || "";
-
-    // Chapters: many comics are single-issue
-    const chapters: Chapter[] = [createChapter({
-      id: "1",
-      name: "Read Online",
-      chapNum: 1,
-      mangaId: mangaId,
-    })];
-
     return createManga({
       id: mangaId,
-      title,
-      image: cover,
-      artist,
-      chapters,
+      title: $("h1").text().trim(),
+      image: $("img").first().attr("src"),
+      chapters: [createChapter({ id: "1", name: "Read it baby 💕", chapNum: 1, mangaId })]
     });
   }
 
-  // Chapter pages (the reader)
-  async getChapterDetails(mangaId: string, chapterId: string): Promise<ChapterDetails> {
+  async getChapterDetails(mangaId) {
     const url = `${this.baseUrl}/${mangaId}`;
     const data = await this.requestManager.schedule({ url, method: "GET" }, 1);
     const $ = this.cheerio.load(data.data);
-
-    const pages: string[] = [];
-    // Site usually has thumbs + full images - adjust selector
-    $(".reader img, .page-image, .comic-page img, .gallery img").each((_, el) => {
-      let src = $(el).attr("src") || $(el).attr("data-src") || $(el).attr("data-lazy-src");
-      if (src) {
-        if (!src.startsWith("http")) src = this.baseUrl + src;
-        pages.push(src);
-      }
+    const pages = [];
+    $(".reader img, .page img, img").each((_, el) => {
+      let src = $(el).attr("src") || $(el).attr("data-src");
+      if (src) pages.push(src.startsWith("http") ? src : this.baseUrl + src);
     });
-
-    return createChapterDetails({
-      id: chapterId,
-      mangaId,
-      pages,
-    });
+    return createChapterDetails({ id: "1", mangaId, pages });
   }
-
-  // Optional: tags, etc. (add if you want)
 }
